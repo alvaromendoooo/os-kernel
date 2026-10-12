@@ -1,0 +1,7 @@
+frame 0
+OK 0
+SEGV
+ERROR
+frame 1
+OOM
+used=2 free=0

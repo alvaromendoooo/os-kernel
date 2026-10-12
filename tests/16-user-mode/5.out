@@ -1,0 +1,6 @@
+OK cpl=0->3
+#GP err=0x0008
+OK cpl=3->3
+OK cpl=0->0
+#GP err=0x0000
+#GP err=0x0000

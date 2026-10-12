@@ -1,0 +1,3 @@
+offset=0x00101234 selector=0x0008 type=interrupt32 dpl=0 present=1
+offset=0xc0001000 selector=0x0008 type=interrupt32 dpl=3 present=1
+offset=0x00000000 selector=0x0018 type=task dpl=0 present=1

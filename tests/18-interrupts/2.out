@@ -1,0 +1,5 @@
+IRQ1 vec=0x21 keyboard
+IRQ0 vec=0x20 timer
+m irr=00 isr=03 imr=fc s irr=00 isr=00 imr=ff
+m irr=00 isr=02 imr=fc s irr=00 isr=00 imr=ff
+m irr=00 isr=00 imr=fc s irr=00 isr=00 imr=ff

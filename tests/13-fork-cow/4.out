@@ -1,0 +1,7 @@
+frame 0
+frame 1
+OK
+COPY 0 -> 2
+OOM
+used=3 free=0
+frame=1 w=0 cow=1 refs=2

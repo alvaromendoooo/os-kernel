@@ -1,0 +1,6 @@
+type=file nlink=1 size=2048 blocks=2
+lbn=0 blk=40 bytes=1023-1024
+lbn=1 blk=41 bytes=0-1
+lbn=1 blk=41 bytes=0-1024
+lbn=1 blk=41 bytes=1023-1024
+EOF

@@ -1,0 +1,6 @@
+DOMAIN app K
+DOMAIN vfs K
+DOMAIN fs K
+DOMAIN disk K
+COST 200 1500
+CHAIN app vfs fs disk

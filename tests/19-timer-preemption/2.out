@@ -1,0 +1,4 @@
+PIT mode=3
+PIT divisor=1193 hz=1000 period_us=999
+PIT mode=3
+PIT divisor=65536 hz=18 period_us=54925

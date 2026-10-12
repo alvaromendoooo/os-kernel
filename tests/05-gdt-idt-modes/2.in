@@ -1,0 +1,2 @@
+GDT 0 fffff 9a a
+GDT 104000 67 89 0

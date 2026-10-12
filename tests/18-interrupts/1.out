@@ -1,0 +1,2 @@
+IRQ1 vec=0x21 keyboard
+IRQ1 vec=0x21 keyboard

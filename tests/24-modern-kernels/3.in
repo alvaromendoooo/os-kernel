@@ -1,0 +1,6 @@
+DOMAIN app U0
+DOMAIN vfs U1
+DOMAIN fs U2
+DOMAIN disk U3
+COST 200 1500
+CHAIN app vfs fs disk

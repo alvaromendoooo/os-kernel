@@ -1,0 +1,13 @@
+BOOT sched 8000
+PROC a 4000 1000
+SET ebx 11
+SET esi 22
+SET edi 33
+SET ebp 44
+SWITCH a 7777
+CTX sched
+PEEK 7ffc
+PEEK 7ff8
+PEEK 7ff4
+PEEK 7ff0
+PEEK 7fec

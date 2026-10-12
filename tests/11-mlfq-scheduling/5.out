@@ -1,0 +1,7 @@
+x L0 5
+x done t=5
+y L0 5
+z L0 1
+z done t=11
+y L1 2
+y done t=13

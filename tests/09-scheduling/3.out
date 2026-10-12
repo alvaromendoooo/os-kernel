@@ -1,0 +1,12 @@
+0-4 P1
+4-7 P2
+7-10 P3
+10-14 P1
+14-18 P1
+18-22 P1
+22-26 P1
+26-30 P1
+P1 done=30 turn=30 wait=6 resp=0
+P2 done=7 turn=7 wait=4 resp=4
+P3 done=10 turn=10 wait=7 resp=7
+total_wait=17

@@ -1,0 +1,7 @@
+running=A left=2 queue=B C
+tick 2: A -> B
+tick 4: B -> C
+tick 5: C -> A
+tick 7: A -> B
+running=B left=2 queue=C A
+ticks=7 ms=384

@@ -1,0 +1,8 @@
+WROTE 5
+nread=0 nwrite=5 head=0 tail=5 used=5
+READ 010203
+nread=3 nwrite=5 head=3 tail=5 used=2
+WROTE 6
+nread=3 nwrite=11 head=3 tail=3 used=8
+READ 0405060708090a0b
+nread=11 nwrite=11 head=3 tail=3 used=0

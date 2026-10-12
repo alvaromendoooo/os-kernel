@@ -1,0 +1,6 @@
+WROTE 3
+WROTE 0 BLOCK
+WROTE 0 BLOCK
+READ 61
+WROTE 1
+nread=1 nwrite=4 head=1 tail=1 used=3

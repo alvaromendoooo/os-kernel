@@ -1,0 +1,8 @@
+FRAMES 2
+MAP 1 5 rw
+WRITE 1 5
+WRITE 1 6
+MAP 1 5 rw
+MAP 1 6 rw
+MAP 1 7 rw
+STAT

@@ -1,0 +1,5 @@
+frame 0
+OK
+COPY 0 -> 1
+REUSE 0
+used=2 free=2

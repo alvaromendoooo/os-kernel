@@ -1,0 +1,5 @@
+PIT mode=2
+PIT divisor=11932 hz=100 period_us=10000
+tick 3: A -> B
+tick 5: B -> A
+ticks=5 ms=50

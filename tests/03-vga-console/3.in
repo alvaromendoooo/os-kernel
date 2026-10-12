@@ -1,0 +1,5 @@
+SCREEN 8 3
+PRINT hi
+NEWLINE
+PRINT there
+SHOW

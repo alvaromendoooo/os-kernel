@@ -1,0 +1,10 @@
+BOOT sched 8000
+PROC a 4000 1000
+SET ebx 11
+SET edi 33
+SWITCH a 7777
+SET ebx 99
+SET esi 55
+SWITCH sched 2222
+REGS
+CTX a

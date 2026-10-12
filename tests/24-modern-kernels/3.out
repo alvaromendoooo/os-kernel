@@ -1,0 +1,8 @@
+app -> vfs mode=2 as=1
+vfs -> fs mode=2 as=1
+fs -> disk mode=2 as=1
+disk -> fs mode=2 as=1
+fs -> vfs mode=2 as=1
+vfs -> app mode=2 as=1
+total mode=12 as=6 ns=11400
+arch=microkernel

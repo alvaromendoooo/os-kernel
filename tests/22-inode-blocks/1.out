@@ -1,0 +1,7 @@
+type=file nlink=1 size=3000 blocks=3
+lbn=0 blk=28 bytes=1000-1024
+lbn=1 blk=29 bytes=0-76
+28
+30
+HOLE
+274432

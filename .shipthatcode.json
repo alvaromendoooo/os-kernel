@@ -1,0 +1,106 @@
+{
+  "course": "build-os-kernel",
+  "language": "rust",
+  "language_id": 1073,
+  "entrypoint": "main.rs",
+  "version": 1,
+  "content_hash": "01907f74511cb57b",
+  "lessons": [
+    {
+      "slug": "what-is-kernel",
+      "tests_hash": "4df23303b548"
+    },
+    {
+      "slug": "boot-process",
+      "tests_hash": "a34e9bf7ef50"
+    },
+    {
+      "slug": "vga-console",
+      "tests_hash": "b8b63ac8196a"
+    },
+    {
+      "slug": "virtual-memory",
+      "tests_hash": "211c4a46d5db"
+    },
+    {
+      "slug": "gdt-idt-modes",
+      "tests_hash": "b135e256ef88"
+    },
+    {
+      "slug": "frame-allocator",
+      "tests_hash": "7b0d0dda5101"
+    },
+    {
+      "slug": "kernel-heap",
+      "tests_hash": "4ca513c9a96e"
+    },
+    {
+      "slug": "processes",
+      "tests_hash": "a05f4f9f88bb"
+    },
+    {
+      "slug": "scheduling",
+      "tests_hash": "479e7fbdea15"
+    },
+    {
+      "slug": "context-switch",
+      "tests_hash": "045ad3da48f9"
+    },
+    {
+      "slug": "mlfq-scheduling",
+      "tests_hash": "89f26cd38231"
+    },
+    {
+      "slug": "spinlocks-races",
+      "tests_hash": "e11916401842"
+    },
+    {
+      "slug": "fork-cow",
+      "tests_hash": "a061c36ee563"
+    },
+    {
+      "slug": "pipes-ipc",
+      "tests_hash": "ae7cb0a3067f"
+    },
+    {
+      "slug": "signals",
+      "tests_hash": "64a766990fb4"
+    },
+    {
+      "slug": "user-mode",
+      "tests_hash": "7cfd891e4cd3"
+    },
+    {
+      "slug": "syscalls",
+      "tests_hash": "a2dfc7c3cd92"
+    },
+    {
+      "slug": "interrupts",
+      "tests_hash": "17d385c6727f"
+    },
+    {
+      "slug": "timer-preemption",
+      "tests_hash": "fca6e6c06963"
+    },
+    {
+      "slug": "keyboard-input",
+      "tests_hash": "96dfda18ed50"
+    },
+    {
+      "slug": "filesystems",
+      "tests_hash": "63fd6ab3013b"
+    },
+    {
+      "slug": "inode-blocks",
+      "tests_hash": "905ee874f5c9"
+    },
+    {
+      "slug": "elf-loading",
+      "tests_hash": "c1a232e885a1"
+    },
+    {
+      "slug": "modern-kernels",
+      "tests_hash": "69421cf8318e"
+    }
+  ]
+}

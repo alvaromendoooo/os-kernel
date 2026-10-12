@@ -1,0 +1,10 @@
+lbn=0 blk=28 bytes=0-1024
+lbn=1 blk=29 bytes=0-1024
+lbn=2 blk=30 bytes=0-952
+lbn=0 blk=28 bytes=0-1024
+lbn=1 blk=29 bytes=0-1024
+lbn=2 blk=30 bytes=0-952
+EOF
+EOF
+lbn=2 blk=30 bytes=951-952
+EOF

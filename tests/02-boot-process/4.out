@@ -1,0 +1,6 @@
+signature OK
+disk id 0x7a1c9e02
+P1 active type=0x07 ntfs lba=2048 sectors=1024000 last=1026047
+P2 inactive type=0x07 ntfs lba=1026048 sectors=497664000 last=498690047
+P3 inactive type=0x05 extended lba=498690048 sectors=1000 last=498691047
+boot P1

@@ -1,0 +1,6 @@
+PIT mode=2
+PIT divisor=11932 hz=100 period_us=10000
+ticks=100 ms=1000
+PIT mode=2
+PIT divisor=1193 hz=1000 period_us=999
+ticks=1100 ms=1999

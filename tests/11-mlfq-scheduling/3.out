@@ -1,0 +1,14 @@
+A L0 2
+B L0 2
+C L0 2
+A L0 2
+B L0 1
+B done t=9
+C L0 1
+C done t=10
+A L1 4
+A L1 4
+A L2 8
+A L2 8
+A L2 2
+A done t=36

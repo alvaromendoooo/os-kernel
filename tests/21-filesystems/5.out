@@ -1,0 +1,15 @@
+1 .
+1 ..
+2 etc
+3 hello.txt
+5 usr
+2 .
+1 ..
+4 passwd
+6 hosts
+7 .
+5 ..
+8 ls
+8 dir
+ENOTDIR
+ENOENT

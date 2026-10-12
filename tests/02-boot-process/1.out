@@ -1,0 +1,5 @@
+signature OK
+disk id 0x1b2c3d4e
+P1 active type=0x83 linux lba=2048 sectors=204800 last=206847
+P2 inactive type=0x82 swap lba=206848 sectors=4194304 last=4401151
+boot P1

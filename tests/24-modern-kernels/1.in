@@ -1,0 +1,5 @@
+DOMAIN app U0
+DOMAIN vfs K
+DOMAIN fs K
+COST 200 1500
+CHAIN app vfs fs

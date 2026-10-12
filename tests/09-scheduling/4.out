@@ -1,0 +1,9 @@
+0-2 X
+2-10 idle
+10-13 Y
+13-14 Z
+14-15 Y
+X done=2 turn=2 wait=0 resp=0
+Y done=15 turn=5 wait=1 resp=0
+Z done=14 turn=3 wait=2 resp=2
+total_wait=3

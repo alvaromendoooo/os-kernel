@@ -1,0 +1,7 @@
+ELF64 little-endian x86-64 type=DYN entry=0x40
+INTERP /lib64/ld-linux-x86-64.so.2
+LOAD vaddr=0x0 memsz=768 filesz=768 offset=0x0 flags=R-X align=0x1000 bss=0
+LOAD vaddr=0x1300 memsz=384 filesz=128 offset=0x300 flags=RW- align=0x1000 bss=256
+STACK RW-
+PAGES 2
+OK

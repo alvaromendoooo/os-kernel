@@ -1,0 +1,5 @@
+m irr=00 isr=00 imr=ff s irr=10 isr=00 imr=ef
+IRQ12 vec=0x2c mouse
+m irr=00 isr=04 imr=fb s irr=00 isr=10 imr=ef
+m irr=00 isr=04 imr=fb s irr=00 isr=00 imr=ef
+m irr=00 isr=00 imr=fb s irr=00 isr=00 imr=ef

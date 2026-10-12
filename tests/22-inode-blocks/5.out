@@ -1,0 +1,8 @@
+type=file nlink=2 size=13412 blocks=16
+111
+200
+201
+202
+HOLE
+lbn=12 blk=200 bytes=712-1024
+lbn=13 blk=201 bytes=0-88

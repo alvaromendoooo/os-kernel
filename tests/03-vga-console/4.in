@@ -1,0 +1,5 @@
+SCREEN 4 2
+PRINT abcd
+PRINT efgh
+PRINT ij
+SHOW

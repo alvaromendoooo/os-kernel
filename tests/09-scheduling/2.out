@@ -1,0 +1,10 @@
+0-2 A
+2-4 B
+4-5 C
+5-7 A
+7-8 B
+8-9 A
+A done=9 turn=9 wait=4 resp=0
+B done=8 turn=7 wait=4 resp=1
+C done=5 turn=3 wait=2 resp=2
+total_wait=10

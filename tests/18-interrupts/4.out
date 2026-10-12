@@ -1,0 +1,2 @@
+IRQ0 vec=0x08 unhandled
+m irr=01 isr=01 imr=fe s irr=00 isr=00 imr=ff

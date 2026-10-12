@@ -1,0 +1,5 @@
+GDT 0 0 0 0
+GDT 0 fffff 9a c
+GDT 0 fffff 92 c
+GDT 0 fffff fa c
+GDT 0 fffff f2 c

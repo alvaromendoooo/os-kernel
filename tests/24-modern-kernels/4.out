@@ -1,0 +1,8 @@
+app -> vfs mode=1 as=0
+vfs -> fs mode=0 as=0
+fs -> disk mode=1 as=0
+disk -> fs mode=1 as=0
+fs -> vfs mode=0 as=0
+vfs -> app mode=1 as=0
+total mode=4 as=0 ns=800
+arch=hybrid

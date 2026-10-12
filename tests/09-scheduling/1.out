@@ -1,0 +1,10 @@
+0-4 A
+4-8 B
+8-12 C
+12-16 A
+16-18 C
+18-20 A
+A done=20 turn=20 wait=10 resp=0
+B done=8 turn=8 wait=4 resp=4
+C done=18 turn=18 wait=12 resp=8
+total_wait=26

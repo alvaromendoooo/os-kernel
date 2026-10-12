@@ -1,0 +1,10 @@
+BOOT sched 8000
+PROC a 4000 1000
+SWITCH sched 5
+SWITCH nobody 5
+SWITCH a 5
+SWITCH a 6
+CTX a
+CTX sched
+CTX nobody
+REGS

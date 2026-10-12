@@ -1,0 +1,7 @@
+ret=2 fd2=6869
+ret=-9
+ret=0
+ret=2 fd1=0000
+ret=-14
+ret=1 fd1=00
+ret=-14

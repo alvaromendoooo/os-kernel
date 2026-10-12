@@ -1,0 +1,7 @@
+ELF64 little-endian x86-64 type=EXEC entry=0x401210
+LOAD vaddr=0x400000 memsz=432 filesz=432 offset=0x0 flags=R-- align=0x1000 bss=0
+LOAD vaddr=0x401200 memsz=512 filesz=512 offset=0x200 flags=R-X align=0x1000 bss=0
+LOAD vaddr=0x602400 memsz=4352 filesz=256 offset=0x400 flags=RW- align=0x1000 bss=4096
+STACK RW-
+PAGES 4
+OK

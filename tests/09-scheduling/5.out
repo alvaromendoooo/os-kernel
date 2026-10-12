@@ -1,0 +1,7 @@
+0-7 a
+7-10 b
+10-11 c
+a done=7 turn=7 wait=0 resp=0
+b done=10 turn=8 wait=5 resp=5
+c done=11 turn=7 wait=6 resp=6
+total_wait=11

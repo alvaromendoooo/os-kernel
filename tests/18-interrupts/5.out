@@ -1,0 +1,4 @@
+IRQ0 vec=0x20 timer
+m irr=01 isr=00 imr=ff s irr=00 isr=00 imr=ff
+IRQ0 vec=0x20 timer
+m irr=00 isr=01 imr=fe s irr=00 isr=00 imr=ff

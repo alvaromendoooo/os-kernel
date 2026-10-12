@@ -1,0 +1,2 @@
+base=0x00000000 limit=0xfffff access=0x9a flags=0xc kind=code dpl=0 present=1 bytes=4294967296
+base=0x00000000 limit=0xfffff access=0xf2 flags=0xc kind=data dpl=3 present=1 bytes=4294967296
