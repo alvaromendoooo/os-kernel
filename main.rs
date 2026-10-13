@@ -77,7 +77,7 @@ fn describe(sector: &[u8]) -> Vec<String> {
                 };
 
                 report_lines.push(
-                    format!("P{} {} type=0x{:02X} {} lba={} sectors={} last={}", 
+                    format!("P{} {} type=0x{:02x} {} lba={} sectors={} last={}", 
                     i, active_status, partition_offset, name, start, sectors, last)
                 );
 
