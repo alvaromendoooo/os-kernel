@@ -17,37 +17,39 @@ impl Mmu {
         let mut pde = self.rd(pde_mem);
 
         let p_pde = (pde & 0x01) != 0;
-        let rw_pde = (pde & 0x02) != 0; // R/W - Bit 2
-        let us_pde = (pde & 0x04) != 0; // U/S - Bit 4
+        let rw_pde = (pde & 0x02) != 0; // R/W - Bit 1
+        let us_pde = (pde & 0x04) != 0; // U/S - Bit 2
         let ps_pde = (pde & 0x80) != 0; // Page Size - Bit 7
 
         let mut base_error = 0;
         if write { base_error |= 2; }
         if user { base_error |= 4; }
 
-        // Check Present PDE
+        // 1. Check Present PDE
         if !p_pde {
             return Err(base_error);
         }
 
-        if (user && !us_pde) || (write && !rw_pde) {
-            return Err(base_error | 1);
-        }
+        // 2. Check if 4 MiB page
+        if ps_pde  {
+            if (user && !us_pde) || (write && !rw_pde) {
+                return Err(base_error | 1);
+            }
 
-        if ps_pde {
             let paddr = (pde & 0xFFC00000) | (vaddr & 0x3FFFFF);
 
             // Update hardware bits PDE
             pde |= 0x20; // Set A
             if write {
-                pde |= 0x40; // Set B
+                pde |= 0x40; // Set D
             }
             
             self.mem.insert(pde_mem, pde);
 
             return Ok(paddr);
         }
-        // If no 4MiB, 4KiB pages.
+
+        // 3. If no 4MiB, proceed to 4KiB page (PTE lookup)
         let pte_addr = (pde & 0xFFFFF000) + 4 * ((vaddr >> 12) & 0x3FF);
         let mut pte = self.rd(pte_addr);
 
@@ -55,11 +57,12 @@ impl Mmu {
         let rw_pte = (pte & 0x02) != 0;
         let us_pte = (pte & 0x04) != 0;
 
+        // Check Present PTE (Ocurre ANTES de los chequeos de permisos)
         if !p_pte {
             return Err(base_error);
         }
 
-        if (user && !us_pte) || (write && !rw_pte) {
+        if (user && (!us_pde || !us_pte)) || (write && (!rw_pde || !rw_pte)) {
             return Err(base_error | 1);
         }
 
