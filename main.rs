@@ -5,10 +5,30 @@ const PRIVILEGED: [&str; 15] = ["hlt", "cli", "sti", "in", "out", "lgdt", "lidt"
 
 // Apply one event to the CPU. Returns (new ring, faulted).
 fn step(ring: u32, words: &[&str]) -> (u32, bool) {
-    // TODO: SYSCALL / INTR enter ring 0, SYSRET / IRET return to ring 3, EXEC of a privileged
-    // mnemonic faults in ring 3. Keep the ring unchanged for everything else.
-    let _ = (words, PRIVILEGED.len());
-    (ring, false)
+    let mut ring_result = ring;
+
+    match words {
+        ["SYSCALL"] | ["INTR", ..] => ring_result = 0,
+        ["SYSRET"] => {
+            if ring_result == 0 {
+                ring_result = 3;
+            } else {
+                ring_result = 0;
+                return (ring_result, true);
+            }
+        },
+        ["IRET"] if ring_result == 0 => {
+            ring_result = 3;
+        }
+        ["EXEC", mnemonic] if ring_result == 3 && PRIVILEGED.contains(mnemonic) => {
+            // Fault
+            ring_result = 0;
+            return (ring_result, true);
+        }
+        _ => {}
+    }
+
+    (ring_result, false)
 }
 
 fn main() {

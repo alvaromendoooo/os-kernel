@@ -2,3 +2,7 @@
 *.class
 __pycache__/
 node_modules/
+src/
+target/
+Cargo.lock
+Cargo.toml
