@@ -43,7 +43,7 @@ fn build_map(regions: &[(u64, u64, u32)], kernels: &[(u64, u64)]) -> Vec<u8> {
 
             for i in start_frame..end_frame {
                 if i < total_frames { 
-                    map[i] = USED;
+                    map[i] = RESV;
                 }
             } 
         }
@@ -57,7 +57,7 @@ fn build_map(regions: &[(u64, u64, u32)], kernels: &[(u64, u64)]) -> Vec<u8> {
 
         for i in start_frame..end_frame {
             if i < total_frames {
-                map[i] = USED;
+                map[i] = RESV;
             }
         }
     }
@@ -104,7 +104,7 @@ fn free_frames(state: &mut Vec<u8>, addr: u64, k: u64) -> bool {
     if (addr % PAGE) != 0 || k == 0 {
         return false;
     }
-
+    
     let start_idx = (addr / PAGE) as usize;
     let end_idx = match start_idx.checked_add(k as usize) { // Take action of overflow
         Some(val) => val,
