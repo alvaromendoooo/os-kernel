@@ -1,69 +1,109 @@
+use std::collections::BTreeMap;
 use std::io::{self, Read};
 
-const HDR: u64 = 16;
-
-#[derive(Debug)]
-struct Block {
-    addr: u64,
-    size: u64,
-    used: bool,
+#[derive(Clone, Copy, PartialEq)]
+enum State {
+    Runnable,
+    Zombie,
 }
 
-// Return the payload address for n bytes, or 0 if nothing fits (a payload is never at address 0
-// because every block has a header in front of it).
-fn alloc_block(blocks: &mut Vec<Block>, n: u64) -> u64 {
-    let payload = 16 + n.next_multiple_of(16); // Rounded up + multiple of 16
+#[derive(Clone, Copy)]
+struct Proc {
+    parent: i64,
+    state: State,
+    status: i64,
+}
 
-    for i in 0..blocks.len() {
-        // Check if processed block is FREE and is profit to be fitted
-        if blocks[i].used || blocks[i].size < payload {
+fn state_name(s: State) -> &'static str {
+    if s == State::Runnable { "RUNNABLE" } else { "ZOMBIE" }
+}
+
+fn children_of(procs: &BTreeMap<i64, Proc>, pid: i64) -> Vec<i64> {
+    procs.iter().filter(|&(_, p)| p.parent == pid).map(|(&c, _)| c).collect()
+}
+
+// Create a child of `parent`; return its pid, or -1 if `parent` cannot fork.
+fn do_fork(procs: &mut BTreeMap<i64, Proc>, next_pid: &mut i64, parent: i64) -> i64 {
+    if let Some(proc) = procs.get(&parent) {
+        if proc.state == State::Runnable {
+            let pid = *next_pid;
+            procs.insert(*next_pid, Proc { parent, state: State::Runnable, status: 0 });
+            *next_pid += 1;
+            return pid;
+        }
+    }
+
+    -1
+}
+
+// Turn `pid` into a zombie and reparent ALL its children to init. Returns false on error.
+fn do_exit(procs: &mut BTreeMap<i64, Proc>, pid: i64, status: i64) -> bool {
+    if let Some(proc) = procs.get_mut(&pid) {
+        if proc.state == State::Runnable {
+            proc.state = State::Zombie;
+            proc.status = status;
+
+            for (_, proc) in procs.iter_mut() {
+                if proc.parent == pid {
+                    proc.parent = 1;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    false
+}
+
+// Returns (0 error | 1 reaped | 2 block | 3 echild, child, status).
+fn do_wait(procs: &mut BTreeMap<i64, Proc>, pid: i64) -> (u8, i64, i64) {
+    // Pid must exist and be Runnable
+    match procs.get(&pid) {
+        Some(p) if p.state == State::Runnable => {}
+        _ => return (0,0,0),
+    }
+
+    let mut has_childrens = false;
+    let mut zombie: Option<i64> = None;
+
+    // BTreeMap iterates in ascending order so first zombie child found is the lowest
+    for (&child, p) in procs.iter() {
+        if p.parent != pid {
             continue;
         }
-        let reminder = blocks[i].size - payload;
-        let block_address = blocks[i].addr;
-        blocks[i].used = true;
 
-        // Splitting condition
-        if reminder >= 32 {
-            blocks[i].size = payload; // Update block size with needed size
-
-            let new_block = Block {
-                addr: block_address + payload,
-                size: reminder,
-                used: false
-            };
-
-            blocks.insert(i + 1, new_block);
+        has_childrens = true;
+        if p.state == State::Zombie {
+            zombie = Some(child);
+            break;
         }
-        return block_address + 16;
     }
-    0    
+
+    if let Some(child) = zombie {
+        let reaped = procs.remove(&child).unwrap();
+        (1, child, reaped.status)
+    } else if has_childrens {
+        (2, 0, 0)
+    } else {
+        (3, 0, 0)
+    }
+
 }
 
-// Free the block whose payload starts at addr. Returns true on success.
-fn free_block(blocks: &mut Vec<Block>, addr: u64) -> bool {
-    let Some(i) = blocks.iter().position(|b| b.used && b.addr + 16 == addr) else {
-        return false;
-    };
-    blocks[i].used = false;
-
-    // Merge with the following block
-    if i + 1 < blocks.len() && !blocks[i + 1].used {
-        let next = blocks.remove(i + 1);
-        blocks[i].size += next.size;
+fn tree(procs: &BTreeMap<i64, Proc>, pid: i64, depth: usize, out: &mut String) {
+    out.push_str(&format!("{}{} {}\n", "  ".repeat(depth), pid, state_name(procs[&pid].state)));
+    for c in children_of(procs, pid) {
+        tree(procs, c, depth + 1, out);
     }
-    // Merge with the preceding block
-    if i > 0 && !blocks[i - 1].used {
-        let cur = blocks.remove(i);
-        blocks[i - 1].size += cur.size;
-    }
-    true
 }
 
 fn main() {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).unwrap();
-    let mut blocks: Vec<Block> = Vec::new();
+    let mut procs: BTreeMap<i64, Proc> = BTreeMap::new();
+    procs.insert(1, Proc { parent: 0, state: State::Runnable, status: 0 });
+    let mut next_pid: i64 = 2;
     let mut out = String::new();
     for line in input.lines() {
         let w: Vec<&str> = line.split_whitespace().collect();
@@ -71,50 +111,44 @@ fn main() {
             continue;
         }
         match w[0] {
-            "HEAP" => {
-                let start = u64::from_str_radix(w[1], 16).unwrap();
-                let size = u64::from_str_radix(w[2], 16).unwrap();
-                let lo = (start + 15) / 16 * 16;
-                let hi = (start + size) / 16 * 16;
-                blocks.clear();
-                if hi > lo {
-                    blocks.push(Block { addr: lo, size: hi - lo, used: false });
+            "FORK" => {
+                let c = do_fork(&mut procs, &mut next_pid, w[1].parse().unwrap());
+                if c < 0 { out.push_str("ERROR\n"); } else { out.push_str(&format!("{}\n", c)); }
+            }
+            "EXIT" => {
+                let pid: i64 = w[1].parse().unwrap();
+                let status: i64 = w[2].parse().unwrap();
+                let init_live = match procs.get(&1) {
+                    Some(p) => p.state == State::Runnable,
+                    None => false,
+                };
+                if pid == 1 && init_live {
+                    out.push_str("PANIC init exiting\n");
+                    break;
+                }
+                out.push_str(if do_exit(&mut procs, pid, status) { "OK\n" } else { "ERROR\n" });
+            }
+            "WAIT" => {
+                let (r, child, status) = do_wait(&mut procs, w[1].parse().unwrap());
+                match r {
+                    0 => out.push_str("ERROR\n"),
+                    1 => out.push_str(&format!("REAPED {} {}\n", child, status)),
+                    2 => out.push_str("BLOCK\n"),
+                    _ => out.push_str("ECHILD\n"),
                 }
             }
-            "ALLOC" => {
-                let n: u64 = w[1].parse().unwrap();
-                if n == 0 {
-                    out.push_str("NULL\n");
+            "PS" => {
+                for (pid, p) in procs.iter() {
+                    out.push_str(&format!("{} {} {}\n", pid, p.parent, state_name(p.state)));
+                }
+            }
+            "TREE" => {
+                let pid: i64 = w[1].parse().unwrap();
+                if procs.contains_key(&pid) {
+                    tree(&procs, pid, 0, &mut out);
                 } else {
-                    let a = alloc_block(&mut blocks, n);
-                    if a == 0 {
-                        out.push_str("OOM\n");
-                    } else {
-                        out.push_str(&format!("0x{:x}\n", a));
-                    }
+                    out.push_str("NO_SUCH_PID\n");
                 }
-            }
-            "FREE" => {
-                let a = u64::from_str_radix(w[1], 16).unwrap();
-                out.push_str(if free_block(&mut blocks, a) { "OK\n" } else { "ERROR\n" });
-            }
-            "DUMP" => {
-                for b in blocks.iter() {
-                    out.push_str(&format!("0x{:x} {} {}\n", b.addr, b.size, if b.used { "used" } else { "free" }));
-                }
-            }
-            "STATS" => {
-                let mut total = 0;
-                let mut largest = 0;
-                for b in blocks.iter() {
-                    if !b.used {
-                        total += b.size;
-                        if b.size > largest {
-                            largest = b.size;
-                        }
-                    }
-                }
-                out.push_str(&format!("free={} largest={} blocks={}\n", total, largest, blocks.len()));
             }
             _ => {}
         }
