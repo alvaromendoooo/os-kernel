@@ -1,105 +1,49 @@
-use std::collections::BTreeMap;
 use std::io::{self, Read};
 
-#[derive(Clone, Copy)]
-struct Pte {
-    frame: usize,
-    w: u8,
-    cow: u8,
+struct Pipe {
+    cap: usize,
+    buf: Vec<u8>,
+    nread: usize,
+    nwrite: usize,
 }
 
-struct Machine {
-    frames_total: usize,
-    refs: Vec<i32>,
-    procs: BTreeMap<i64, BTreeMap<i64, Pte>>,
-}
-
-impl Machine {
-    fn lowest_free(&self) -> Option<usize> {
-        for f in 0..self.frames_total {
-            if self.refs[f] == 0 {
-                return Some(f);
-            }
+impl Pipe {
+    // Store as many bytes as fit. Returns the number stored.
+    fn write(&mut self, data: &[u8]) -> usize {
+        let space = self.cap - (self.nwrite - self.nread);
+        let count = space.min(data.len()); // Length of data to be stored in self.buf
+        
+        for (i, byte) in data.iter().take(count).enumerate() {
+            let index_to_start_fill = (self.nwrite + i) % self.cap;
+            self.buf[index_to_start_fill] = *byte;
         }
-        None
+
+        self.nwrite += count;
+        count
     }
 
-    // Share the parent's pages with a new child. False if parent is missing or child exists.
-    fn fork(&mut self, parent: i64, child: i64) -> bool {
-        // Check parent missing or child already exists
-        if self.procs.contains_key(&child) {
-            return false;
-        }
-
-        // Get parent page table
-        let ptable = match self.procs.get_mut(&parent) {
-            Some(t) => t,
-            None => return false, // Parent doesn't register ptable
-        };
-
-        // Writable pages become read_only + COW.
-        for pte in ptable.values_mut() {
-            if pte.w == 1 {
-                pte.w = 0;
-                pte.cow = 1;
+    // Remove up to n bytes from the front and return them (empty if the pipe is empty).
+    fn read(&mut self, n: usize) -> Vec<u8> {
+        let mut bytes_read: Vec<u8> = Vec::new();
+        let take = n.min(self.nwrite - self.nread);
+        if !self.buf.is_empty() {
+            for (i, _) in self.buf.iter().take(take).enumerate() {
+                let index_to_start_read = (self.nread + i) % self.cap;
+                bytes_read.push(self.buf[index_to_start_read]);
             }
         }
 
-        let child_table = ptable.clone();
-
-        // Each shared frames gains one more reference
-        for pte in child_table.values() {
-            self.refs[pte.frame] += 1;
-        }
-
-        // Registry of child
-        self.procs.insert(child, child_table);
-        
-        true
-    }
-
-    // Handle a write. Returns the output line.
-    fn write(&mut self, pid: i64, vpn: i64) -> String {
-        let entry = match self.procs.get(&pid).and_then(|t| t.get(&vpn)) {
-            Some(e) => *e,
-            None => return "SEGV".to_string(),
-        };
-        
-        if entry.w == 1 {
-            return format!("OK {}", entry.frame);
-        }
-
-        if entry.cow == 0 {
-            return "SEGV".to_string();
-        }
-
-        let old = entry.frame;
-        if self.refs[old] > 1 {
-            let new = match self.lowest_free() {
-                Some(f) => f,
-                None => return "OOM".to_string()
-            };
-            self.refs[new] = 1;
-            self.refs[old] -= 1;
-            let pte = self.procs.get_mut(&pid).unwrap().get_mut(&vpn).unwrap();
-            pte.frame = new;
-            pte.w = 1;
-            pte.cow = 0;
-            format!("COPY {} -> {}", old, new)
-        } else {
-            let pte = self.procs.get_mut(&pid).unwrap().get_mut(&vpn).unwrap();
-            pte.w = 1;
-            pte.cow = 0;
-            format!("REUSE {}", old)
-        }
+        self.nread += take;
+        bytes_read
     }
 }
 
 fn main() {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).unwrap();
-    let mut m = Machine { frames_total: 0, refs: Vec::new(), procs: BTreeMap::new() };
-    m.procs.insert(1, BTreeMap::new());
+    let mut p = Pipe { cap: 1, buf: vec![0u8; 1], nread: 0, nwrite: 0 };
+    let mut r_open = true;
+    let mut w_open = true;
     let mut out = String::new();
     for line in input.lines() {
         let w: Vec<&str> = line.split_whitespace().collect();
@@ -107,71 +51,64 @@ fn main() {
             continue;
         }
         match w[0] {
-            "FRAMES" => {
-                m.frames_total = w[1].parse().unwrap();
-                m.refs = vec![0; m.frames_total];
-            }
-            "MAP" => {
-                let pid: i64 = w[1].parse().unwrap();
-                let vpn: i64 = w[2].parse().unwrap();
-                let exists = match m.procs.get(&pid) {
-                    Some(t) => t.contains_key(&vpn),
-                    None => true,
-                };
-                if exists {
-                    out.push_str("ERROR\n");
-                    continue;
-                }
-                match m.lowest_free() {
-                    None => out.push_str("OOM\n"),
-                    Some(f) => {
-                        m.refs[f] = 1;
-                        let e = Pte { frame: f, w: if w[3] == "rw" { 1 } else { 0 }, cow: 0 };
-                        m.procs.get_mut(&pid).unwrap().insert(vpn, e);
-                        out.push_str(&format!("frame {}\n", f));
-                    }
-                }
-            }
-            "FORK" => {
-                let ok = m.fork(w[1].parse().unwrap(), w[2].parse().unwrap());
-                out.push_str(if ok { "OK\n" } else { "ERROR\n" });
-            }
-            "READ" => {
-                let pid: i64 = w[1].parse().unwrap();
-                let vpn: i64 = w[2].parse().unwrap();
-                match m.procs.get(&pid).and_then(|t| t.get(&vpn)) {
-                    Some(e) => out.push_str(&format!("frame {}\n", e.frame)),
-                    None => out.push_str("SEGV\n"),
-                }
+            "PIPE" => {
+                let cap: usize = w[1].parse().unwrap();
+                p = Pipe { cap: cap, buf: vec![0u8; cap], nread: 0, nwrite: 0 };
+                r_open = true;
+                w_open = true;
             }
             "WRITE" => {
-                let line = m.write(w[1].parse().unwrap(), w[2].parse().unwrap());
-                out.push_str(&line);
-                out.push('\n');
-            }
-            "EXIT" => {
-                let pid: i64 = w[1].parse().unwrap();
-                match m.procs.remove(&pid) {
-                    None => out.push_str("ERROR\n"),
-                    Some(t) => {
-                        for (_, e) in t.iter() {
-                            m.refs[e.frame] -= 1;
-                        }
-                        out.push_str("OK\n");
+                let mut data: Vec<u8> = Vec::new();
+                if w.len() > 1 {
+                    let hex = w[1].as_bytes();
+                    let mut i = 0;
+                    while i + 1 < hex.len() {
+                        let s = String::from_utf8_lossy(&hex[i..i + 2]).to_string();
+                        data.push(u8::from_str_radix(&s, 16).unwrap());
+                        i += 2;
+                    }
+                }
+                if !w_open {
+                    out.push_str("EBADF\n");
+                } else if !r_open {
+                    out.push_str("EPIPE\n");
+                } else {
+                    let n = p.write(&data);
+                    if n == data.len() {
+                        out.push_str(&format!("WROTE {}\n", n));
+                    } else {
+                        out.push_str(&format!("WROTE {} BLOCK\n", n));
                     }
                 }
             }
-            "PTE" => {
-                let pid: i64 = w[1].parse().unwrap();
-                let vpn: i64 = w[2].parse().unwrap();
-                match m.procs.get(&pid).and_then(|t| t.get(&vpn)) {
-                    Some(e) => out.push_str(&format!("frame={} w={} cow={} refs={}\n", e.frame, e.w, e.cow, m.refs[e.frame])),
-                    None => out.push_str("UNMAPPED\n"),
+            "READ" => {
+                if !r_open {
+                    out.push_str("EBADF\n");
+                    continue;
+                }
+                let got = p.read(w[1].parse().unwrap());
+                if !got.is_empty() {
+                    out.push_str("READ ");
+                    for b in got.iter() {
+                        out.push_str(&format!("{:02x}", b));
+                    }
+                    out.push('\n');
+                } else if w_open {
+                    out.push_str("BLOCK\n");
+                } else {
+                    out.push_str("EOF\n");
                 }
             }
-            "STAT" => {
-                let used = m.refs.iter().filter(|&&r| r > 0).count();
-                out.push_str(&format!("used={} free={}\n", used, m.frames_total - used));
+            "CLOSE" => {
+                if w[1] == "R" {
+                    r_open = false;
+                } else {
+                    w_open = false;
+                }
+                out.push_str("OK\n");
+            }
+            "STATE" => {
+                out.push_str(&format!("nread={} nwrite={} head={} tail={} used={}\n", p.nread, p.nwrite, p.nread % p.cap, p.nwrite % p.cap, p.nwrite - p.nread));
             }
             _ => {}
         }
