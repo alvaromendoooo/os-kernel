@@ -1,99 +1,180 @@
+use std::collections::BTreeMap;
 use std::io::{self, Read};
 
-struct Thread {
-    name: String,
-    prog: Vec<String>,
-    pc: usize,
-    r: i64,
+#[derive(Clone, Copy)]
+struct Pte {
+    frame: usize,
+    w: u8,
+    cow: u8,
 }
 
-struct State {
-    counter: i64,
-    spins: i64,
-    lock: i64, // index of the holder, or -1
+struct Machine {
+    frames_total: usize,
+    refs: Vec<i32>,
+    procs: BTreeMap<i64, BTreeMap<i64, Pte>>,
 }
 
-// Run one instruction of threads[i]. Returns 0 normally, 1 for a REL by a non-holder (error message
-// wanted), 2 for a relock panic.
-fn execute(threads: &mut Vec<Thread>, i: usize, state: &mut State) -> u8 {
-    let Some(thread) = threads.get_mut(i) else { return 0 };
-    let inst = match thread.prog.get(thread.pc) {
-        Some(s) => s.clone(),
-        None => return 0
-    };
-
-    match inst.as_str() {
-        "LOAD" => { thread.r = state.counter; thread.pc += 1; },
-        "INC"  => { thread.r += 1; thread.pc += 1; },
-        "STORE" => { state.counter = thread.r; thread.pc += 1; },
-        "ACQ" => {
-            if state.lock == -1 { // Lock is free
-                state.lock = i as i64;
-                thread.pc += 1;
-            } else if state.lock == i as i64 {
-                return 2; // relock panic.
-            } else {
-                state.spins += 1;
-            }
-        },
-        "REL" => {
-            thread.pc += 1;
-            if state.lock == i as i64 { // If thread holds the lock
-                state.lock = -1; // Lock becomes free
-            } else {
-                return 1;
+impl Machine {
+    fn lowest_free(&self) -> Option<usize> {
+        for f in 0..self.frames_total {
+            if self.refs[f] == 0 {
+                return Some(f);
             }
         }
-        _ => {},
+        None
     }
-    0
+
+    // Share the parent's pages with a new child. False if parent is missing or child exists.
+    fn fork(&mut self, parent: i64, child: i64) -> bool {
+        // Check parent missing or child already exists
+        if !self.procs.contains_key(&parent) && self.procs.contains_key(&child) {
+            return false;
+        }
+
+        // Get parent page table
+        let ptable = match self.procs.get_mut(&parent) {
+            Some(t) => t,
+            None => return false, // Parent doesn't register ptable
+        };
+
+        // Writable pages become read_only + COW.
+        for pte in ptable.values_mut() {
+            if pte.w == 1 {
+                pte.w = 0;
+                pte.cow = 1;
+            }
+        }
+
+        let child_table = ptable.clone();
+
+        // Each shared frames gains one more reference
+        for pte in child_table.values() {
+            self.refs[pte.frame] += 1;
+        }
+
+        // Registry of child
+        self.procs.insert(child, child_table);
+        
+        true
+    }
+
+    // Handle a write. Returns the output line.
+    fn write(&mut self, pid: i64, vpn: i64) -> String {
+        let entry = match self.procs.get(&pid).and_then(|t| t.get(&vpn)) {
+            Some(e) => *e,
+            None => return "SEGV".to_string(),
+        };
+        
+        if entry.w == 1 {
+            return format!("OK {}", entry.frame);
+        }
+
+        if entry.cow == 0 {
+            return "SEGV".to_string();
+        }
+
+        let old = entry.frame;
+        if self.refs[old] > 1 {
+            let new = match self.lowest_free() {
+                Some(f) => f,
+                None => return "OOM".to_string()
+            };
+            self.refs[new] = 1;
+            self.refs[old] -= 1;
+            let pte = self.procs.get_mut(&pid).unwrap().get_mut(&vpn).unwrap();
+            pte.frame = new;
+            pte.w = 1;
+            pte.cow = 0;
+            format!("COPY {} -> {}", old, new)
+        } else {
+            let pte = self.procs.get_mut(&pid).unwrap().get_mut(&vpn).unwrap();
+            pte.w = 1;
+            pte.cow = 0;
+            format!("REUSE {}", old)
+        }
+    }
 }
 
 fn main() {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).unwrap();
-    let mut state = State { counter: 0, spins: 0, lock: -1 };
-    let mut threads: Vec<Thread> = Vec::new();
-    let mut schedule: Vec<String> = Vec::new();
+    let mut m = Machine { frames_total: 0, refs: Vec::new(), procs: BTreeMap::new() };
+    m.procs.insert(1, BTreeMap::new());
+    let mut out = String::new();
     for line in input.lines() {
         let w: Vec<&str> = line.split_whitespace().collect();
         if w.is_empty() {
             continue;
         }
         match w[0] {
-            "COUNTER" => state.counter = w[1].parse().unwrap(),
-            "THREAD" => threads.push(Thread { name: w[1].to_string(), prog: w[2..].iter().map(|s| s.to_string()).collect(), pc: 0, r: 0 }),
-            "SCHEDULE" => {
-                for s in w[1..].iter() {
-                    schedule.push(s.to_string());
+            "FRAMES" => {
+                m.frames_total = w[1].parse().unwrap();
+                m.refs = vec![0; m.frames_total];
+            }
+            "MAP" => {
+                let pid: i64 = w[1].parse().unwrap();
+                let vpn: i64 = w[2].parse().unwrap();
+                let exists = match m.procs.get(&pid) {
+                    Some(t) => t.contains_key(&vpn),
+                    None => true,
+                };
+                if exists {
+                    out.push_str("ERROR\n");
+                    continue;
                 }
+                match m.lowest_free() {
+                    None => out.push_str("OOM\n"),
+                    Some(f) => {
+                        m.refs[f] = 1;
+                        let e = Pte { frame: f, w: if w[3] == "rw" { 1 } else { 0 }, cow: 0 };
+                        m.procs.get_mut(&pid).unwrap().insert(vpn, e);
+                        out.push_str(&format!("frame {}\n", f));
+                    }
+                }
+            }
+            "FORK" => {
+                let ok = m.fork(w[1].parse().unwrap(), w[2].parse().unwrap());
+                out.push_str(if ok { "OK\n" } else { "ERROR\n" });
+            }
+            "READ" => {
+                let pid: i64 = w[1].parse().unwrap();
+                let vpn: i64 = w[2].parse().unwrap();
+                match m.procs.get(&pid).and_then(|t| t.get(&vpn)) {
+                    Some(e) => out.push_str(&format!("frame {}\n", e.frame)),
+                    None => out.push_str("SEGV\n"),
+                }
+            }
+            "WRITE" => {
+                let line = m.write(w[1].parse().unwrap(), w[2].parse().unwrap());
+                out.push_str(&line);
+                out.push('\n');
+            }
+            "EXIT" => {
+                let pid: i64 = w[1].parse().unwrap();
+                match m.procs.remove(&pid) {
+                    None => out.push_str("ERROR\n"),
+                    Some(t) => {
+                        for (_, e) in t.iter() {
+                            m.refs[e.frame] -= 1;
+                        }
+                        out.push_str("OK\n");
+                    }
+                }
+            }
+            "PTE" => {
+                let pid: i64 = w[1].parse().unwrap();
+                let vpn: i64 = w[2].parse().unwrap();
+                match m.procs.get(&pid).and_then(|t| t.get(&vpn)) {
+                    Some(e) => out.push_str(&format!("frame={} w={} cow={} refs={}\n", e.frame, e.w, e.cow, m.refs[e.frame])),
+                    None => out.push_str("UNMAPPED\n"),
+                }
+            }
+            "STAT" => {
+                let used = m.refs.iter().filter(|&&r| r > 0).count();
+                out.push_str(&format!("used={} free={}\n", used, m.frames_total - used));
             }
             _ => {}
         }
     }
-    let mut out = String::new();
-    for name in schedule.iter() {
-        let mut ti = 0;
-        for (j, t) in threads.iter().enumerate() {
-            if &t.name == name {
-                ti = j;
-            }
-        }
-        if threads[ti].pc >= threads[ti].prog.len() {
-            continue;
-        }
-        let r = execute(&mut threads, ti, &mut state);
-        if r == 2 {
-            out.push_str(&format!("PANIC {} relock\n", name));
-            print!("{}", out);
-            return;
-        }
-        if r == 1 {
-            out.push_str(&format!("ERR {} REL\n", name));
-        }
-    }
-    let unfinished = threads.iter().filter(|t| t.pc < t.prog.len()).count();
-    let holder = if state.lock < 0 { "free".to_string() } else { threads[state.lock as usize].name.clone() };
-    out.push_str(&format!("counter={}\nspins={}\nlock={}\nunfinished={}\n", state.counter, state.spins, holder, unfinished));
     print!("{}", out);
 }
