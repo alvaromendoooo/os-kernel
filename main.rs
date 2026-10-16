@@ -27,7 +27,7 @@ impl Machine {
     // Share the parent's pages with a new child. False if parent is missing or child exists.
     fn fork(&mut self, parent: i64, child: i64) -> bool {
         // Check parent missing or child already exists
-        if !self.procs.contains_key(&parent) && self.procs.contains_key(&child) {
+        if self.procs.contains_key(&child) {
             return false;
         }
 
