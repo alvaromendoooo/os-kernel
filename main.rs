@@ -74,7 +74,7 @@ fn decode(codes: &[u32], out: &mut String) {
             }
         } else {
             let ctrl = lctrl || rctrl;
-            
+
             match code {
                 0x2A => lshift = true,
                 0x36 => rshift = true,
@@ -109,7 +109,13 @@ fn decode(codes: &[u32], out: &mut String) {
         }
     }
 
-    out.push_str(&buf);
+    if !buf.is_empty() {
+        out.push_str("pending: ");
+        out.push_str(&buf);
+        out.push('\n');
+    } else {
+        out.push_str(&buf);
+    }
 }
 
 fn main() {
