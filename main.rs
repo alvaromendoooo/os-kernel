@@ -1,158 +1,105 @@
-use std::collections::VecDeque;
 use std::io::{self, Read};
 
-const CLOCK: u64 = 1193182;
+const ROWS: [(u32, &'static str, &'static str); 4] = [
+    (0x02, "1234567890-=", "!@#$%^&*()_+"),
+    (0x10, "qwertyuiop[]", "QWERTYUIOP{}"),
+    (0x1E, "asdfghjkl;'`", "ASDFGHJKL:\"~"),
+    (0x2B, "\\zxcvbnm,./", "|ZXCVBNM<>?"),
+];
 
-#[derive(Clone)]
-struct Task {
-    name: String,
-    slice: i64,
-    left: i64,
-}
+// Character for a key make code, or None. Letters follow shift XOR caps; others follow shift.
+fn key_char(code: u32, shifted: bool, caps: bool) -> Option<char> {
 
-struct Machine {
-    divisor: u64,
-    state: u8, // 0 idle, 1 awaiting low byte, 2 awaiting high byte
-    low_byte: u64,
-    ticks: u64,
-    counts: u64,
-    ready: VecDeque<Task>,
-    running: Option<Task>,
-}
-
-impl Machine {
-    // Handle one `out`. Returns the output line, if any.
-    fn out_port(&mut self, port: u64, value: u64) -> Option<String> {
-        match port {
-            67 => {
-                let channel = (value & 0xC0) >> 6; // Bits 6-7
-                let access = (value & 0x30) >> 4; // Bits 5-4
-
-                if channel != 0 || access != 3 {
-                    Some("PIT ignored".to_string())
-                } else {
-                    let mode = (value & 0x0E) >> 1;
-                    let _mode = match mode { // Reinterpretation of mode value
-                        7 => 3,
-                        6 => 2,
-                        other => other,
-                    };
-
-                    self.state = 1;
-                    Some(format!("PIT mode={}", _mode))
-                }
-            }, // 43
-            64 => {
-                match self.state {
-                    1 => {
-                        self.low_byte = value;
-                        self.state = 2; // Awaits high_byte
-                        None
-                    },
-                    2 => {
-                        let high = value;
-                        let low = self.low_byte;
-                        let mut divisor = high * 256 + low;
-
-                        if divisor == 0 {
-                            divisor = 65536;
-                        }
-
-                        self.state = 0; // Becomes idle again
-                        self.divisor = divisor;
-
-                        let hz = (CLOCK + divisor / 2) / divisor;
-                        let period_us = divisor * 1000000 / CLOCK;
-
-                        Some(format!("PIT divisor={} hz={} period_us={}", divisor, hz, period_us)) 
-                    },
-                    _  => None,
-                }
-            }, // 40
-            _ => None,
-        }
+    if code == 0x39 {
+        return Some(' ');
     }
 
-    // One timer interrupt.
-    fn tick(&mut self, out: &mut String) {
-        self.ticks += 1;
-        self.counts += self.divisor;
+    for &(start, normal, shifted_chars) in &ROWS {
+        let index = code.wrapping_sub(start) as usize;
+        if index >= normal.len() {
+            continue;
+        }
 
-        if let Some(mut task) = self.running.take() {
-            task.left -= 1;
+        let normal_char = normal.as_bytes()[index] as char;
+        let use_shifted = if normal_char.is_ascii_alphabetic() {
+            shifted ^ caps
+        } else {
+            shifted
+        };
+        return Some(if use_shifted {
+            shifted_chars.as_bytes()[index] as char
+        } else {
+            normal_char
+        });
+    }
 
-            if task.left <= 0 {
-                if !self.ready.is_empty() {
-                    let old_name = task.name.clone();
+    None
+}
 
-                    task.left = task.slice;
-                    self.ready.push_back(task);
+// Run the whole byte stream through the state machine, appending console lines to `out`.
+fn decode(codes: &[u32], out: &mut String) {
+    let mut lshift = false;
+    let mut rshift = false;
+    let mut lctrl = false;
+    let mut rctrl = false;
+    let mut caps = false;
+    let mut ext = false;
+    let mut buf = String::new();
 
-                    let mut new_task = self.ready.pop_front().unwrap();
-                    new_task.left = new_task.slice;
-
-                    out.push_str(&format!("tick {}: {} -> {}\n", self.ticks, old_name, new_task.name));
-
-                    // This new task becomes the new running task
-                    self.running = Some(new_task);
-                } else {
-                    // Empty queue, running task refresh
-                    task.left = task.slice;
-                    self.running = Some(task);
+    for &code in codes {
+        // If extended flag, clear
+        if ext {
+            // Reset ext flag
+            ext = false;
+            // Handle extended keys
+            match code {
+                0x1D => rctrl = true,
+                0x9D => rctrl = false,
+                0x1C => {
+                    let shifted = lshift || rshift;
+                    if let Some(space) = key_char(code, shifted, caps) {
+                        buf.push(space);
+                    }
+                },
+                _ => {}
+            }
+        } else if code == 0xE0 {
+            ext = true;
+        } else if code >= 0x80 {
+            match code {
+                0xAA => lshift = false,
+                0xB6 => rshift = false,
+                0x9D => lctrl = false,
+                _ => {} // Ignored
+            }
+        } else {
+            match code {
+                0x2A => lshift = true,
+                0x36 => rshift = true,
+                0x1D => lctrl = true,
+                0x3A => caps = !caps,
+                0x0E => { buf.pop(); },
+                0x1C => {
+                    buf.push('\n');
+                },
+                _ => {
+                    let shifted = lshift || rshift;
+                    if let Some(char) = key_char(code, shifted, caps) {
+                        buf.push(char);
+                    }
                 }
-            } else {
-                // Task still running
-                self.running = Some(task);
             }
         }
     }
+
+    out.push_str(&buf);
 }
 
 fn main() {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).unwrap();
-    let mut m = Machine { divisor: 65536, state: 0, low_byte: 0, ticks: 0, counts: 0, ready: VecDeque::new(), running: None };
+    let codes: Vec<u32> = input.split_whitespace().map(|t| u32::from_str_radix(t, 16).unwrap()).collect();
     let mut out = String::new();
-    for line in input.lines() {
-        let w: Vec<&str> = line.split_whitespace().collect();
-        if w.is_empty() {
-            continue;
-        }
-        match w[0] {
-            "OUT" => {
-                let p = u64::from_str_radix(w[1], 16).unwrap();
-                let v = u64::from_str_radix(w[2], 16).unwrap();
-                if let Some(r) = m.out_port(p, v) {
-                    out.push_str(&r);
-                    out.push('\n');
-                }
-            }
-            "TASK" => {
-                let s: i64 = w[2].parse().unwrap();
-                let t = Task { name: w[1].to_string(), slice: s, left: s };
-                if m.running.is_none() {
-                    m.running = Some(t);
-                } else {
-                    m.ready.push_back(t);
-                }
-            }
-            "TICK" => {
-                let n: u64 = if w.len() > 1 { w[1].parse().unwrap() } else { 1 };
-                for _ in 0..n {
-                    m.tick(&mut out);
-                }
-            }
-            "UPTIME" => out.push_str(&format!("ticks={} ms={}\n", m.ticks, m.counts * 1000 / CLOCK)),
-            "STATUS" => match m.running {
-                None => out.push_str("running=- left=0 queue=-\n"),
-                Some(ref r) => {
-                    let names: Vec<String> = m.ready.iter().map(|t| t.name.clone()).collect();
-                    let q = if names.is_empty() { "-".to_string() } else { names.join(" ") };
-                    out.push_str(&format!("running={} left={} queue={}\n", r.name, r.left, q));
-                }
-            },
-            _ => {}
-        }
-    }
+    decode(&codes, &mut out);
     print!("{}", out);
 }
