@@ -73,6 +73,8 @@ fn decode(codes: &[u32], out: &mut String) {
                 _ => {} // Ignored
             }
         } else {
+            let ctrl = lctrl || rctrl;
+            
             match code {
                 0x2A => lshift = true,
                 0x36 => rshift = true,
@@ -80,12 +82,27 @@ fn decode(codes: &[u32], out: &mut String) {
                 0x3A => caps = !caps,
                 0x0E => { buf.pop(); },
                 0x1C => {
-                    buf.push('\n');
+                    out.push_str(&buf);
+                    out.push('\n');
+                    buf.clear();
+                }
+                _ if ctrl => match code {
+                    0x2E => {                      // Ctrl+C
+                        out.push_str("^C\n");
+                        buf.clear();
+                    }
+                    0x20 => {                      // Ctrl+D
+                        if buf.is_empty() {
+                            out.push_str("<EOF>\n");
+                        }                          // non-empty buffer: ignored (check spec)
+                    }
+                    0x16 => buf.clear(),           // Ctrl+U
+                    _ => {}                        // other Ctrl+key: ignored
                 },
                 _ => {
                     let shifted = lshift || rshift;
-                    if let Some(char) = key_char(code, shifted, caps) {
-                        buf.push(char);
+                    if let Some(c) = key_char(code, shifted, caps) {
+                        buf.push(c);
                     }
                 }
             }
