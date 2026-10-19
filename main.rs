@@ -1,116 +1,152 @@
+use std::collections::HashMap;
 use std::io::{self, Read};
 
-struct Pipe {
-    cap: usize,
-    buf: Vec<u8>,
-    nread: usize,
-    nwrite: usize,
+struct Proc {
+    disposition: HashMap<u32, &'static str>, // "handler" | "ignore"; missing means default
+    blocked: u32,
+    pending: u32,
+    dead: bool,
 }
 
-impl Pipe {
-    // Store as many bytes as fit. Returns the number stored.
-    fn write(&mut self, data: &[u8]) -> usize {
-        let space = self.cap - (self.nwrite - self.nread);
-        let count = space.min(data.len()); // Length of data to be stored in self.buf
-        
-        for (i, byte) in data.iter().take(count).enumerate() {
-            let index_to_start_fill = (self.nwrite + i) % self.cap;
-            self.buf[index_to_start_fill] = *byte;
-        }
+fn name_of(sig: u32) -> Option<&'static str> {
+    Some(match sig {
+        1 => "SIGHUP", 2 => "SIGINT", 3 => "SIGQUIT", 4 => "SIGILL", 6 => "SIGABRT", 8 => "SIGFPE",
+        9 => "SIGKILL", 10 => "SIGUSR1", 11 => "SIGSEGV", 12 => "SIGUSR2", 13 => "SIGPIPE",
+        14 => "SIGALRM", 15 => "SIGTERM", 17 => "SIGCHLD", 18 => "SIGCONT", 19 => "SIGSTOP",
+        20 => "SIGTSTP", 28 => "SIGWINCH",
+        _ => return None,
+    })
+}
 
-        self.nwrite += count;
-        count
+fn default_action(sig: u32) -> &'static str {
+    match sig {
+        3 | 4 | 6 | 8 | 11 => "CORE",
+        17 | 28 => "IGNORED",
+        18 => "CONT",
+        19 | 20 => "STOP",
+        _ => "TERMINATE",
+    }
+}
+
+fn bit(sig: u32) -> u32 {
+    1u32 << (sig - 1)
+}
+
+impl Proc {
+    // Deliver `sig` now: print its line and mark the process dead if the action kills it.
+    fn deliver(&mut self, sig: u32, out: &mut String) {
+        let d = self.disposition.get(&sig).cloned().unwrap_or("default");
+        let result = if d == "handler" {
+            "HANDLED"
+        } else if d == "ignore" {
+            "IGNORED"
+        } else {
+            default_action(sig)
+        };
+        out.push_str(&format!("{} {}\n", name_of(sig).unwrap(), result));
+        if d == "default" && (result == "TERMINATE" || result == "CORE") {
+            self.dead = true;
+        }
     }
 
-    // Remove up to n bytes from the front and return them (empty if the pipe is empty).
-    fn read(&mut self, n: usize) -> Vec<u8> {
-        let mut bytes_read: Vec<u8> = Vec::new();
-        let take = n.min(self.nwrite - self.nread);
-        if !self.buf.is_empty() {
-            for (i, _) in self.buf.iter().take(take).enumerate() {
-                let index_to_start_read = (self.nread + i) % self.cap;
-                bytes_read.push(self.buf[index_to_start_read]);
+    // SIGNAL n: deliver now, or hold it pending (printing PENDING / MERGED) if it is blocked.
+    fn generate(&mut self, sig: u32, out: &mut String) {
+        let mask = bit(sig);
+        if self.blocked & mask != 0 {
+            if self.pending & mask != 0 {
+                out.push_str(&format!("{} MERGED\n", name_of(sig).unwrap()));
+            } else {
+                self.pending |= mask;
+                out.push_str(&format!("{} PENDING\n", name_of(sig).unwrap()));
+            }
+        } else {
+            self.deliver(sig, out);
+        }
+    }
+
+    // Deliver every pending signal that is not blocked, lowest number first.
+    fn flush(&mut self, out: &mut String) {
+        for sig in 1..=31 {
+            let mask = bit(sig);
+            
+            if self.blocked & mask != 0 {
+                continue;
+            }
+
+            if (self.pending & mask) != 0 {
+                self.pending &= !mask;
+                self.deliver(sig, out);
+
+                if self.dead {
+                    break;
+                }
             }
         }
-
-        self.nread += take;
-        bytes_read
     }
 }
 
 fn main() {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).unwrap();
-    let mut p = Pipe { cap: 1, buf: vec![0u8; 1], nread: 0, nwrite: 0 };
-    let mut r_open = true;
-    let mut w_open = true;
+    let mut p = Proc { disposition: HashMap::new(), blocked: 0, pending: 0, dead: false };
     let mut out = String::new();
     for line in input.lines() {
+        if p.dead {
+            break;
+        }
         let w: Vec<&str> = line.split_whitespace().collect();
         if w.is_empty() {
             continue;
         }
-        match w[0] {
-            "PIPE" => {
-                let cap: usize = w[1].parse().unwrap();
-                p = Pipe { cap: cap, buf: vec![0u8; cap], nread: 0, nwrite: 0 };
-                r_open = true;
-                w_open = true;
+        let c = w[0];
+        if c == "PENDING" {
+            out.push_str(&format!("pending=0x{:08x}\n", p.pending));
+            continue;
+        }
+        if c == "MASK" {
+            out.push_str(&format!("blocked=0x{:08x}\n", p.blocked));
+            continue;
+        }
+        if c == "SETMASK" && w.len() >= 2 {
+            p.blocked = u32::from_str_radix(w[1], 16).unwrap() & !(bit(9) | bit(19));
+            p.flush(&mut out);
+            continue;
+        }
+        if w.len() < 2 {
+            continue;
+        }
+        let sig: u32 = w[1].parse().unwrap();
+        if name_of(sig).is_none() {
+            out.push_str("EINVAL\n");
+            continue;
+        }
+        if c == "HANDLE" || c == "IGNORE" {
+            if sig == 9 || sig == 19 {
+                out.push_str("EINVAL\n");
+                continue;
             }
-            "WRITE" => {
-                let mut data: Vec<u8> = Vec::new();
-                if w.len() > 1 {
-                    let hex = w[1].as_bytes();
-                    let mut i = 0;
-                    while i + 1 < hex.len() {
-                        let s = String::from_utf8_lossy(&hex[i..i + 2]).to_string();
-                        data.push(u8::from_str_radix(&s, 16).unwrap());
-                        i += 2;
-                    }
-                }
-                if !w_open {
-                    out.push_str("EBADF\n");
-                } else if !r_open {
-                    out.push_str("EPIPE\n");
-                } else {
-                    let n = p.write(&data);
-                    if n == data.len() {
-                        out.push_str(&format!("WROTE {}\n", n));
-                    } else {
-                        out.push_str(&format!("WROTE {} BLOCK\n", n));
-                    }
-                }
+            if c == "HANDLE" {
+                p.disposition.insert(sig, "handler");
+            } else {
+                p.disposition.insert(sig, "ignore");
+                p.pending &= !bit(sig);
             }
-            "READ" => {
-                if !r_open {
-                    out.push_str("EBADF\n");
-                    continue;
-                }
-                let got = p.read(w[1].parse().unwrap());
-                if !got.is_empty() {
-                    out.push_str("READ ");
-                    for b in got.iter() {
-                        out.push_str(&format!("{:02x}", b));
-                    }
-                    out.push('\n');
-                } else if w_open {
-                    out.push_str("BLOCK\n");
-                } else {
-                    out.push_str("EOF\n");
-                }
+            out.push_str("OK\n");
+        } else if c == "DEFAULT" {
+            p.disposition.remove(&sig);
+            if default_action(sig) == "IGNORED" {
+                p.pending &= !bit(sig);
             }
-            "CLOSE" => {
-                if w[1] == "R" {
-                    r_open = false;
-                } else {
-                    w_open = false;
-                }
-                out.push_str("OK\n");
+            out.push_str("OK\n");
+        } else if c == "BLOCK" {
+            if sig != 9 && sig != 19 {
+                p.blocked |= bit(sig);
             }
-            "STATE" => {
-                out.push_str(&format!("nread={} nwrite={} head={} tail={} used={}\n", p.nread, p.nwrite, p.nread % p.cap, p.nwrite % p.cap, p.nwrite - p.nread));
-            }
-            _ => {}
+        } else if c == "UNBLOCK" {
+            p.blocked &= !bit(sig);
+            p.flush(&mut out);
+        } else if c == "SIGNAL" {
+            p.generate(sig, &mut out);
         }
     }
     print!("{}", out);
