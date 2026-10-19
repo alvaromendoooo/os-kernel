@@ -24,11 +24,11 @@ impl Cpu {
         if !present {
             return format!("#NP err=0x{:04x}", err);
         }
-        if (gate_type != 0x0e && gate_type != 0x0f)
-            || cpl > gate_dpl
-            || target_cpl > cpl
-        {
+        if gate_type != 0x0e && gate_type != 0x0f || cpl > gate_dpl {
             return format!("#GP err=0x{:04x}", err);
+        }
+        if target_cpl != 0 || target_cpl > cpl {
+            return format!("#GP err=0x{:04x}", selector & !7);
         }
 
         let target_eip = ((gate & 0xffff) | ((gate >> 32) & 0xffff0000)) as u32;
@@ -43,7 +43,8 @@ impl Cpu {
         } else {
             eflags
         };
-        let old_cs = if cpl == 0 { 0x08 } else { 0x18 | cpl };
+        let old_cs = if cpl == 3 { 0x1b } else { 0x08 };
+        let old_ss = if cpl == 3 { 0x23 } else { 0x10 };
         let frame = if switched {
             format!(
                 "0x{:08x},0x{:08x},0x{:08x},0x{:08x},0x{:08x}",
@@ -51,7 +52,7 @@ impl Cpu {
                 old_cs,
                 eflags,
                 esp,
-                0x20 | cpl
+                old_ss
             )
         } else {
             format!("0x{:08x},0x{:08x},0x{:08x}", eip, old_cs, eflags)
