@@ -24,10 +24,10 @@ impl Cpu {
         if !present {
             return format!("#NP err=0x{:04x}", err);
         }
-        if gate_type != 0x0e && gate_type != 0x0f || cpl > gate_dpl {
+        if (gate_type != 0x0e && gate_type != 0x0f) || cpl > gate_dpl {
             return format!("#GP err=0x{:04x}", err);
         }
-        if target_cpl != 0 || target_cpl > cpl {
+        if target_cpl > cpl {
             return format!("#GP err=0x{:04x}", selector & !7);
         }
 
