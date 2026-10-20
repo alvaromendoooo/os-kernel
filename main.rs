@@ -1,162 +1,253 @@
-use std::collections::HashMap;
 use std::io::{self, Read};
 
-const NDIRECT: usize = 12;
+const USER_MAX: u64 = 0x7FFF_FFFF_FFFF;
 
-struct Fs {
-    bsize: usize,
-    itype: u64,
-    nlink: u64,
-    size: u64,
-    addrs: Vec<u64>,
-    blocks: HashMap<u64, Vec<u8>>,
-}
-
-fn from_hex(s: &str) -> Vec<u8> {
-    let b = s.as_bytes();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i + 1 < b.len() {
-        let t = String::from_utf8_lossy(&b[i..i + 2]).to_string();
-        out.push(u8::from_str_radix(&t, 16).unwrap());
-        i += 2;
-    }
-    out
-}
-
-fn le(raw: &[u8], off: usize, n: usize) -> u64 {
+// Little-endian unsigned integer of n bytes at off.
+fn u(data: &[u8], off: u64, n: usize) -> u64 {
     let mut v: u64 = 0;
     for i in (0..n).rev() {
-        v = v * 256 + raw[off + i] as u64;
+        let pos = off.wrapping_add(i as u64);
+        let b = if pos < data.len() as u64 { data[pos as usize] } else { 0 };
+        v = v * 256 + b as u64;
     }
     v
 }
 
-fn blk_name(b: i64) -> String {
-    if b < 0 {
-        "EFBIG".to_string()
-    } else if b == 0 {
-        "HOLE".to_string()
-    } else {
-        b.to_string()
-    }
+fn flag_letters(f: u64) -> String {
+    let mut s = String::new();
+    s.push(if f & 4 != 0 { 'R' } else { '-' });
+    s.push(if f & 2 != 0 { 'W' } else { '-' });
+    s.push(if f & 1 != 0 { 'X' } else { '-' });
+    s
 }
 
-impl Fs {
-    // The index-th 32-bit little-endian pointer inside disk block `block_no` (0 if absent).
-    fn ptr(&self, block_no: u64, index: usize) -> u64 {
-        let empty: Vec<u8> = Vec::new();
-        let data = self.blocks.get(&block_no).unwrap_or(&empty);
-        let mut v: u64 = 0;
-        for i in (0..4).rev() {
-            let pos = index * 4 + i;
-            let b = if pos < data.len() { data[pos] } else { 0 };
-            v = v * 256 + b as u64;
-        }
-        v
+struct Load {
+    idx: u64,
+    lo: u64,
+    hi: u64,
+    vaddr: u64,
+    memsz: u64,
+    flags: u64,
+}
+
+// Return the report lines for the ELF file `data`.
+fn analyze(data: &[u8]) -> Vec<String> {
+    let mut analysis: Vec<String> = Vec::new();
+    let mut accepted_loads: Vec<Load> = Vec::new();
+    let mut has_error = false;
+    let mut total_pages = 0;
+    
+    // HEADER validation
+    let l = data.len() as u64;
+
+    if l < 64 {
+        analysis.push("ERROR truncated header".to_string());
+        return analysis;
     }
 
-    // Disk block for logical block n: >= 0 (0 = hole) or -1 if beyond the inode's reach.
-    fn bmap(&self, n: usize) -> i64 {
-        if n < NDIRECT {
-            self.addrs[n] as i64
-        } else if n < NDIRECT + self.bsize / 4 {
-            let indirect = self.addrs[NDIRECT];
-            if indirect == 0 {
-                0
-            } else {
-                self.ptr(indirect, n - NDIRECT) as i64
-            }
-        } else {
-            -1
-        }
+    let magic_numbers: Vec<u8> = data.iter().take(4).copied().collect();
+
+    if magic_numbers != [0x7f, 0x45, 0x4c, 0x46] {
+        analysis.push("ERROR not an ELF file".to_string());
+        return analysis;
     }
 
-    // Number of disk blocks the file occupies, including the indirect block.
-    fn count_blocks(&self) -> usize {
-        let mut counter = 0;
-        for i in 0..NDIRECT {
-            if self.addrs[i] != 0 {
-                counter += 1;
-            }
-        }
+    if data.get(4) != Some(&2) {
+            let class = data.get(4).copied().unwrap_or_default();
+            analysis.push(format!("ERROR unsupported class {}", class));
+            return analysis;
+    }    
 
-        // Indirect address treatment
-        let indirect_block = self.addrs[NDIRECT];
-        if indirect_block != 0 {
-            counter += 1; // Count the indirect
+    if data.get(5) != Some(&1) {
+        let dat = data.get(5).copied().unwrap_or_default();
+        analysis.push(format!("ERROR unsupported byte order {}", dat));
+        return analysis;
+    }
 
-            for idx in 0..self.bsize / 4 {
-                if self.ptr(indirect_block, idx) != 0 {
-                    counter += 1;
+    let machine_bytes: [u8; 2] = [data[18], data[19]];
+    let machine = u16::from_le_bytes(machine_bytes);
+    if machine != 0x3e {
+        analysis.push(format!("ERROR unsupported machine 0x{:04x}", machine));
+        return analysis;
+    }
+
+    let type_h_bytes: [u8; 2] = [data[16], data[17]];
+    let type_h = u16::from_le_bytes(type_h_bytes);
+    if type_h != 2 && type_h != 3 {
+        analysis.push(format!("ERROR unsupported type {}", type_h));
+        return analysis;
+    }
+
+    let phentsize_bytes: [u8; 2] = [data[54], data[55]];
+    let phentsize = u16::from_le_bytes(phentsize_bytes);
+    if phentsize != 56 {
+        analysis.push(format!("ERROR bad phentsize {}", phentsize));
+        return analysis;
+    }
+
+    let phoff = u(data, 32, 8);
+    let phnum_bytes: [u8; 2] = [data[56], data[57]];
+    let phnum = u16::from_le_bytes(phnum_bytes) as u64;
+    let header_end = phoff.wrapping_add(phnum.wrapping_mul(56));
+    if header_end > l {
+        analysis.push("ERROR program headers outside file".to_string());
+        return analysis;
+    }
+
+    let entry = u(data, 24, 8);
+    analysis.push(format!("ELF64 little-endian x86-64 type={} entry=0x{:x}", 
+        if type_h == 2 { "EXEC" } else { "DYN" },
+        entry,
+    ));
+
+    // PROGRAM HEADERS //
+    for i in 0..phnum {
+        // Start position of current program header
+        let ph_start = phoff.wrapping_add(i.wrapping_mul(56));
+
+        let p_type = u(data, ph_start, 4);
+        let p_flags = u(data, ph_start + 4, 4);
+        let p_offset = u(data, ph_start + 8, 8);
+        let p_vaddr = u(data, ph_start + 16, 8);
+        let p_filesz = u(data, ph_start + 32, 8);
+        let p_memsz = u(data, ph_start + 40, 8);
+        let p_align = u(data, ph_start + 48, 8);
+
+        match p_type {
+            3 => { //  INTERP
+                let end_range = p_offset.wrapping_add(p_filesz);
+                if end_range > l {
+                    analysis.push(format!("ERROR segment {}: data outside file", i));
+                    has_error = true;
+                    break;
                 }
+
+                let start_idx = p_offset as usize;
+                let end_idx = (p_offset + p_filesz) as usize;
+                let slice = &data[start_idx..end_idx];
+                let interp_bytes: Vec<u8> = slice.iter().copied().take_while(|&b| b != 0).collect();
+                let interp_str = String::from_utf8_lossy(&interp_bytes);
+                analysis.push(format!("INTERP {}", interp_str));
+            },
+            0x6474e551 => { // GNU_STACK
+                let flag = flag_letters(p_flags);
+                analysis.push(format!("STACK {}", flag));
+            },
+            1 => { // LOAD
+                if p_filesz > p_memsz {
+                    analysis.push(format!("ERROR segment {}: filesz exceeds memsz", i));
+                    has_error = true;
+                    break;
+                }
+
+                if p_offset.wrapping_add(p_filesz) > l {
+                    analysis.push(format!("ERROR segment {}: data outside file", i));
+                    has_error = true;
+                    break;
+                }
+
+                if p_align > 1 && (p_vaddr % p_align) != (p_offset % p_align) {
+                    analysis.push(format!("ERROR segment {}: misaligned", i));
+                    has_error = true;
+                    break;
+                }
+
+                let (vaddr_end, overflow) = p_vaddr.overflowing_add(p_memsz);
+                if overflow || vaddr_end > USER_MAX {
+                    analysis.push(format!("ERROR segment {}: outside user space", i));
+                    has_error = true;
+                    break;
+                }
+
+                if p_memsz > 0 {
+                    let page_start = p_vaddr / 4096 * 4096;
+                    let page_end = (p_vaddr.wrapping_add(p_memsz).wrapping_add(4095)) / 4096 * 4096;
+
+                    let mut overlap = false;
+                    let mut prev_idx = 0;
+
+                    for load in &accepted_loads {
+                        let l_start = load.vaddr / 4096 * 4096;
+                        let l_end = (load.vaddr.wrapping_add(load.memsz).wrapping_add(4095)) / 4096 * 4096;
+
+                        // Compare range intersections
+                        if page_start < l_end && l_start < page_end {
+                            overlap = true;
+                            prev_idx = load.idx;
+                            break;
+                        }
+                    }
+
+                    if overlap {
+                        analysis.push(format!("ERROR segment {}: overlaps segment {}", i, prev_idx));
+                        has_error = true;
+                        break;
+                    }
+                }
+
+                // All validated
+                let bss = p_memsz - p_filesz;
+                analysis.push(format!(
+                    "LOAD vaddr=0x{:x} memsz={} filesz={} offset=0x{:x} flags={} align=0x{:x} bss={}",
+                    p_vaddr, p_memsz, p_filesz, p_offset, flag_letters(p_flags), p_align, bss
+                ));
+
+                // Calculte pages for this segment
+                if p_memsz > 0 {
+                    let pages_for_seg = (p_vaddr % 4096 + p_memsz + 4095) / 4096;
+                    total_pages += pages_for_seg;
+                }
+
+                accepted_loads.push(Load {
+                    idx: i,
+                    lo: p_vaddr,
+                    hi: p_vaddr.wrapping_add(p_memsz),
+                    vaddr: p_vaddr,
+                    memsz: p_memsz,
+                    flags: p_flags,
+                });
+
+            },
+            _ => {},
+        }
+    }
+
+    if !has_error {
+        let entry = u(data, 24, 8);
+        let mut entry_in_exec = false;
+
+        for load in &accepted_loads {
+            // Flags include X: p_flags & 1 != 0
+            if (load.flags & 1) != 0 && entry >= load.lo && entry < load.hi {
+                entry_in_exec = true;
+                break;
             }
         }
-        
-        counter
-    }
 
-    // Append one line per logical block touched by [offset, offset + length), clipped to the size.
-    fn span(&self, offset: u64, length: u64, out: &mut String) {
-        if length == 0 || offset >= self.size || self.bsize == 0 {
-            out.push_str("EOF\n");
-            return;
-        }
-
-        let bsize = self.bsize as u64;
-        let end = offset.saturating_add(length).min(self.size);
-        let first_lbn = offset / bsize;
-        let last_lbn = (end - 1) / bsize;
-        for lbn in first_lbn..=last_lbn {
-            let blk = blk_name(self.bmap(lbn as usize));
-            let block_start = lbn * bsize;
-            let from_bytes = offset.max(block_start) - block_start;
-            let to_bytes = end.min(block_start + bsize) - block_start;
-            out.push_str(&format!("lbn={} blk={} bytes={}-{}\n", lbn, blk, from_bytes, to_bytes));
+        if !entry_in_exec {
+            analysis.push("ERROR entry not in an executable segment".to_string());
+        } else {
+            analysis.push(format!("PAGES {}", total_pages));
+            analysis.push("OK".to_string());
         }
     }
+
+    analysis
+
 }
 
 fn main() {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input).unwrap();
-    let mut fs = Fs { bsize: 1024, itype: 0, nlink: 0, size: 0, addrs: vec![0; 13], blocks: HashMap::new() };
-    let mut out = String::new();
-    for line in input.lines() {
-        let w: Vec<&str> = line.split_whitespace().collect();
-        if w.is_empty() {
-            continue;
-        }
-        match w[0] {
-            "FS" => fs.bsize = w[1].parse().unwrap(),
-            "INODE" => {
-                let raw = from_hex(w[1]);
-                fs.itype = le(&raw, 0, 2);
-                fs.nlink = le(&raw, 6, 2);
-                fs.size = le(&raw, 8, 4);
-                for i in 0..13 {
-                    fs.addrs[i] = le(&raw, 12 + 4 * i, 4);
-                }
-            }
-            "BLOCK" => {
-                let d = if w.len() > 2 { from_hex(w[2]) } else { Vec::new() };
-                fs.blocks.insert(w[1].parse().unwrap(), d);
-            }
-            "STAT" => {
-                let nm = match fs.itype {
-                    0 => "free",
-                    1 => "dir",
-                    2 => "file",
-                    3 => "dev",
-                    _ => "unknown",
-                };
-                out.push_str(&format!("type={} nlink={} size={} blocks={}\n", nm, fs.nlink, fs.size, fs.count_blocks()));
-            }
-            "BMAP" => out.push_str(&format!("{}\n", blk_name(fs.bmap(w[1].parse().unwrap())))),
-            "MAXSIZE" => out.push_str(&format!("{}\n", (NDIRECT + fs.bsize / 4) * fs.bsize)),
-            "SPAN" => fs.span(w[1].parse().unwrap(), w[2].parse().unwrap(), &mut out),
-            _ => {}
-        }
+    let digits: Vec<u8> = input.bytes().filter(|c| (*c as char).is_ascii_hexdigit()).collect();
+    let mut data: Vec<u8> = Vec::new();
+    let mut i = 0;
+    while i + 1 < digits.len() {
+        let s = String::from_utf8_lossy(&digits[i..i + 2]).to_string();
+        data.push(u8::from_str_radix(&s, 16).unwrap());
+        i += 2;
     }
-    print!("{}", out);
+    for l in analyze(&data) {
+        println!("{}", l);
+    }
 }
