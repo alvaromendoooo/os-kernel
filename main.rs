@@ -88,10 +88,12 @@ fn analyze(data: &[u8]) -> Vec<String> {
     let phoff = u(data, 32, 8);
     let phnum_bytes: [u8; 2] = [data[56], data[57]];
     let phnum = u16::from_le_bytes(phnum_bytes) as u64;
-    let header_end = phoff.wrapping_add(phnum.wrapping_mul(56));
-    if header_end > l {
-        analysis.push("ERROR program headers outside file".to_string());
-        return analysis;
+    match phoff.checked_add(phnum * 56) { // phnum is at most 65535, so this multiply can't overflow
+        Some(end) if end <= l => {}
+        _ => {
+            analysis.push("ERROR program headers outside file".to_string());
+            return analysis;
+        }
     }
 
     let entry = u(data, 24, 8);
@@ -115,8 +117,8 @@ fn analyze(data: &[u8]) -> Vec<String> {
 
         match p_type {
             3 => { //  INTERP
-                let end_range = p_offset.wrapping_add(p_filesz);
-                if end_range > l {
+                let end_range = p_offset.checked_add(p_filesz);
+                if end_range > Some(l) {
                     analysis.push(format!("ERROR segment {}: data outside file", i));
                     has_error = true;
                     break;
