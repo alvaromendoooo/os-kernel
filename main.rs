@@ -75,22 +75,20 @@ impl Fs {
     // Number of disk blocks the file occupies, including the indirect block.
     fn count_blocks(&self) -> usize {
         let mut counter = 0;
-        for i in 0..self.addrs.len() - 1 {
+        for i in 0..NDIRECT {
             if self.addrs[i] != 0 {
                 counter += 1;
             }
         }
 
         // Indirect address treatment
-        let indirect_block = self.addrs[12];
+        let indirect_block = self.addrs[NDIRECT];
         if indirect_block != 0 {
             counter += 1; // Count the indirect
 
-            if let Some(indirect_entries) = self.blocks.get(&indirect_block) {
-                for &i_e in indirect_entries {
-                    if i_e != 0 {
-                        counter += 1;
-                    }
+            for idx in 0..self.bsize / 4 {
+                if self.ptr(indirect_block, idx) != 0 {
+                    counter += 1;
                 }
             }
         }
