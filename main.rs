@@ -56,10 +56,9 @@ fn decode(codes: &[u32], out: &mut String) {
                 0x1D => rctrl = true,
                 0x9D => rctrl = false,
                 0x1C => {
-                    let shifted = lshift || rshift;
-                    if let Some(space) = key_char(code, shifted, caps) {
-                        buf.push(space);
-                    }
+                    out.push_str(&buf);
+                    out.push('\n');
+                    buf.clear();
                 },
                 _ => {}
             }
@@ -85,7 +84,7 @@ fn decode(codes: &[u32], out: &mut String) {
                     out.push_str(&buf);
                     out.push('\n');
                     buf.clear();
-                }
+                },
                 _ if ctrl => match code {
                     0x2E => {                      // Ctrl+C
                         out.push_str("^C\n");
